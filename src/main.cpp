@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <charconv>
 #include <iostream>
 #include <random>
 #include <semaphore.hpp>
@@ -22,7 +23,9 @@ struct shared_memory {
   std::array<char *, 4> buffers{};
 };
 
-void child_process(shared_memory &);
+enum { PUT_ITEM, TAKE_ITEM };
+
+void child_process(SEMAPHORE &, shared_memory &, int);
 void slowdown(std::mt19937 &);
 std::pair<uint32_t, uint32_t> random_chunks(std::mt19937 &rng);
 std::pair<uint32_t, uint32_t> random_groups(std::mt19937 &rng);
@@ -41,16 +44,34 @@ int main() {
     }
   };
 
+  SEMAPHORE s(4);
+  s.V(PUT_ITEM);
+  s.V(PUT_ITEM);
+  s.V(PUT_ITEM);
+  s.V(PUT_ITEM);
+  s.V(PUT_ITEM);
+
   // Test example of initialization
   init_char(g.a, lower_dist);
   init_char(g.b, upper_dist);
   init_char(g.c, upper_dist);
 
   for (const auto i : {0, 1, 2, 3}) {
-    const auto id = shmget(IPC_PRIVATE, sizeof(group), PERMS);
+    const auto size = sizeof(group);
+    std::cout << "Size of group: " << size << '\n';
+    const auto id = shmget(IPC_PRIVATE, size, PERMS);
     mem_spaces.ids[i] = id;
     mem_spaces.buffers[i] = static_cast<char *>(shmat(id, nullptr, SHM_RND));
   }
+
+  // Prompt user for number of operations to be performed
+  std::cout << "Enter the number of swaps you want each process to perform. ";
+  int swaps = 1;
+  /*[]() {
+    std::string line;
+    std::getline(std::cin, line);
+    return std::stoi(line);
+  }()*/
 
   // Create 5 children
   std::vector<int> children{};
@@ -59,7 +80,7 @@ int main() {
     if (pid > 0) {
       children.push_back(pid);
     } else if (pid == 0) {
-      child_process(mem_spaces);
+      child_process(s, mem_spaces, swaps);
       exit(0);
     } else if (pid < 0) {
       std::cout << "Could not create process.\n";
@@ -91,16 +112,22 @@ int main() {
   }
 }
 
-void child_process(shared_memory &memory) {
+void child_process(SEMAPHORE &s, shared_memory &memory, int swaps) {
   std::mt19937 rng{std::random_device{}()};
 
   slowdown(rng);
   const auto [chunk1, chunk2] = random_chunks(rng);
   const auto [group1, group2] = random_groups(rng);
-
-  /* Begin atomic swap here */
-  std::cout << '[' << getpid() << "]: Chunks: (" << chunk1 << ", " << chunk2
-            << ") Groups: (" << group1 << ", " << group2 << ")\n";
+  for (auto i = 0; i < swaps; ++i) {
+    s.P(PUT_ITEM);
+    std::cout << '[' << getpid() << "]: Mem Location 1: "
+              << static_cast<void *>(memory.buffers[group1] + 512 * chunk1)
+              << " Group " << group1 << " Chunk " << chunk1 << '\n';
+    std::cout << '[' << getpid() << "]: Mem Location 2: "
+              << static_cast<void *>(memory.buffers[group2] + 512 * chunk2)
+              << " Group " << group2 << " Chunk " << chunk2 << '\n';
+    s.V(TAKE_ITEM);
+  }
 }
 
 void slowdown(std::mt19937 &rng) {
