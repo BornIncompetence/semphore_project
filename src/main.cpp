@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <charconv>
 #include <iostream>
 #include <random>
 #include <semaphore.hpp>
@@ -13,9 +12,22 @@
 constexpr auto CHUNK = 512;
 
 struct group {
-  unsigned char a[CHUNK];
-  unsigned char b[CHUNK];
-  unsigned char c[CHUNK];
+  std::array<unsigned char, CHUNK> a;
+  std::array<unsigned char, CHUNK> b;
+  std::array<unsigned char, CHUNK> c;
+
+  std::array<unsigned char, CHUNK> &operator[](int i) {
+    switch (i) {
+    case 0:
+      return a;
+    case 1:
+      return b;
+    case 2:
+      return c;
+    default:
+      throw std::out_of_range("Attempted to go out of bounds!");
+    }
+  }
 };
 
 struct shared_memory {
@@ -25,7 +37,6 @@ struct shared_memory {
 
 enum { PUT_ITEM, TAKE_ITEM };
 
-void swap(unsigned char *, unsigned char *, int);
 void child_process(SEMAPHORE &, shared_memory &, int);
 void slowdown(std::mt19937 &);
 std::pair<uint32_t, uint32_t> random_chunks(std::mt19937 &rng);
@@ -122,14 +133,6 @@ int main() {
   }
 }
 
-void swap(unsigned char *a, unsigned char *b, int n) {
-  for (auto i = 0; i < n; ++i) {
-    const auto temp = a[i];
-    b[i] = a[i];
-    a[i] = temp;
-  }
-}
-
 void child_process(SEMAPHORE &s, shared_memory &memory, int swaps) {
   std::mt19937 rng{std::random_device{}()};
 
@@ -138,17 +141,7 @@ void child_process(SEMAPHORE &s, shared_memory &memory, int swaps) {
   const auto [group1, group2] = random_groups(rng);
   for (auto i = 0; i < swaps; ++i) {
     s.P(PUT_ITEM);
-    const auto f = [&](uint32_t g, uint32_t c) -> unsigned char * {
-      switch (c) {
-      case 0:
-        return memory.buffers[g]->a;
-      case 1:
-        return memory.buffers[g]->b;
-      default:
-        return memory.buffers[g]->c;
-      }
-    };
-    swap(f(chunk1, group1), f(chunk2, group2), CHUNK);
+    std::swap(memory.buffers[group1][chunk1], memory.buffers[group2][chunk2]);
     s.V(TAKE_ITEM);
   }
 }
