@@ -55,6 +55,9 @@ int main() {
   std::mt19937 rng{std::random_device{}()};
   std::uniform_int_distribution lower_dist{'a', 'z'};
   std::uniform_int_distribution upper_dist{'A', 'Z'};
+
+  // Initializes a single array (or pointer) with random numbers constrained
+  // within a uniform distribution range
   auto init_char = [&](auto &&arr, auto &&dist) {
     for (auto i = 0; i < CHUNK; ++i) {
       arr[i] = static_cast<char>(dist(rng));
